@@ -5,6 +5,7 @@
 
 set -euo pipefail
 export LC_ALL=C
+trap 'echo "hotspot-up failed at line $LINENO" >&2' ERR
 
 command -v dnsmasq >/dev/null || { echo "The hotspot needs dnsmasq: omarchy pkg add dnsmasq" >&2; exit 1; }
 
@@ -21,7 +22,11 @@ done < <(nmcli -t -f UUID,TYPE connection show)
 
 if [[ -z $uuid ]]; then
   ssid="$(hostnamectl hostname 2>/dev/null || cat /etc/hostname)-hotspot"
-  password=$(LC_ALL=C tr -dc 'abcdefghjkmnpqrstuvwxyz23456789' </dev/urandom | head -c 12)
+  # Filter a fixed amount of randomness: reading /dev/urandom through head
+  # would SIGPIPE tr and, under pipefail, end the script silently.
+  password=$(head -c 1024 /dev/urandom | tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')
+  password=${password:0:12}
+  (( ${#password} == 12 )) || { echo "Could not generate a password" >&2; exit 1; }
   nmcli connection add type wifi ifname "$device" con-name Hotspot autoconnect no \
     ssid "${ssid:0:32}" 802-11-wireless.mode ap 802-11-wireless.band bg \
     wifi-sec.key-mgmt wpa-psk wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp \
