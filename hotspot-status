@@ -12,7 +12,7 @@ command -v dnsmasq >/dev/null && emit dnsmasq yes || emit dnsmasq no
 # ufw drops DHCP, DNS, and forwarded traffic from hotspot clients unless
 # setup-firewall has added its rules.
 if grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then
-  if grep -qs 'hotspot-forward' /etc/ufw/user.rules; then emit firewall open; else emit firewall blocked; fi
+  if grep -qsE '^-A ufw-user-forward .*-s 10\.42\.0\.0/24 -j ACCEPT' /etc/ufw/user.rules; then emit firewall open; else emit firewall blocked; fi
 else
   emit firewall off
 fi
