@@ -1,0 +1,26 @@
+#!/bin/bash
+# Lets hotspot clients through ufw: DHCP and DNS to this laptop, and routing
+# out to the internet. Rules are limited to the Wi-Fi device and the
+# hotspot's 10.42.0.0/24 subnet. Run once with sudo; undo with --remove.
+
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo "Run with sudo: sudo $0 $*" >&2; exit 1; }
+
+device=$(nmcli -t -f DEVICE,TYPE device | awk -F: '$2 == "wifi" { print $1; exit }')
+[[ -n $device ]] || { echo "No Wi-Fi device found" >&2; exit 1; }
+
+rules=(
+  "allow in on $device proto udp from any port 68 to any port 67 comment hotspot-dhcp"
+  "allow in on $device from 10.42.0.0/24 to 10.42.0.1 port 53 comment hotspot-dns"
+  "route allow in on $device from 10.42.0.0/24 comment hotspot-forward"
+)
+
+for rule in "${rules[@]}"; do
+  if [[ ${1:-} == --remove ]]; then
+    # shellcheck disable=SC2086
+    ufw delete $rule || true
+  else
+    # shellcheck disable=SC2086
+    ufw $rule
+  fi
+done

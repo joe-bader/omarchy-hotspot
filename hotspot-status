@@ -1,0 +1,64 @@
+#!/bin/bash
+# Prints the Wi-Fi hotspot's state as key<TAB>value lines for the hotspot bar
+# widget. Read-only: queries NetworkManager (nmcli), iw, and ufw's rule files,
+# and never changes anything. Missing values print as empty strings.
+
+export LC_ALL=C
+emit() { printf '%s\t%s\n' "$1" "${2//[$'\t\n']/ }"; }
+
+emit radio "$(timeout 5 nmcli -t radio wifi 2>/dev/null)"
+command -v dnsmasq >/dev/null && emit dnsmasq yes || emit dnsmasq no
+
+# ufw drops DHCP, DNS, and forwarded traffic from hotspot clients unless
+# setup-firewall has added its rules.
+if grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then
+  if grep -qs 'hotspot-forward' /etc/ufw/user.rules; then emit firewall open; else emit firewall blocked; fi
+else
+  emit firewall off
+fi
+
+# First Wi-Fi device that can run an access point.
+device="" dev_state="" dev_conn=""
+while IFS=: read -r dev type state conn; do
+  [[ $type == wifi ]] || continue
+  [[ $(timeout 5 nmcli -g WIFI-PROPERTIES.AP device show "$dev" 2>/dev/null) == yes ]] || continue
+  device=$dev dev_state=$state dev_conn=$conn
+  break
+done < <(timeout 5 nmcli -t -e no -f DEVICE,TYPE,STATE,CONNECTION device 2>/dev/null)
+emit device "$device"
+[[ -n $device ]] || exit 0
+
+# The hotspot profile: a Wi-Fi profile in AP mode, preferring one named
+# "Hotspot" (what hotspot-up creates).
+uuid="" name=""
+while IFS=: read -r u t; do
+  [[ $t == 802-11-wireless ]] || continue
+  mapfile -t f < <(timeout 5 nmcli -e no -g connection.id,802-11-wireless.mode connection show uuid "$u" 2>/dev/null)
+  [[ ${f[1]} == ap ]] || continue
+  if [[ -z $uuid || ${f[0]} == Hotspot ]]; then uuid=$u name=${f[0]}; fi
+done < <(timeout 5 nmcli -t -f UUID,TYPE connection show 2>/dev/null)
+emit profile "$name"
+
+if [[ -n $uuid ]]; then
+  mapfile -t f < <(timeout 5 nmcli -e no -g 802-11-wireless.ssid,802-11-wireless.band,GENERAL.STATE connection show uuid "$uuid" 2>/dev/null)
+  emit ssid "${f[0]}"
+  emit band "${f[1]}"
+  emit state "${f[2]}"   # activating / activated / deactivating, empty when down
+fi
+
+if [[ -n $name && $dev_conn == "$name" ]]; then
+  # Hotspot is running: who is on it, and what it is sharing.
+  emit clients "$(timeout 5 iw dev "$device" station dump 2>/dev/null | grep -c '^Station')"
+  if [[ -r /sys/class/net/$device/statistics/rx_bytes ]]; then
+    # From the laptop's side: clients' downloads are our tx.
+    emit down_bytes "$(</sys/class/net/$device/statistics/tx_bytes)"
+    emit up_bytes "$(</sys/class/net/$device/statistics/rx_bytes)"
+  fi
+  uplink=$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+  if [[ -n $uplink && $uplink != "$device" ]]; then
+    emit uplink "$uplink"
+    emit uplink_type "$(timeout 5 nmcli -g GENERAL.TYPE device show "$uplink" 2>/dev/null)"
+  fi
+elif [[ $dev_state == connected* ]]; then
+  emit wifi_network "$dev_conn"
+fi
