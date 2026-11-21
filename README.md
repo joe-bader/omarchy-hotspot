@@ -9,8 +9,10 @@ computer.
 - **Left click**: open the panel. **Right click**: hotspot on/off.
 - **Panel**: on/off switch, connected devices, a hint for anything in the way
   (missing dnsmasq, firewall, no internet to share), network name, band, what
-  it is sharing, data used this session, and a **Show QR code** button that
-  shows a code a phone can scan to join.
+  it is sharing, data used this session, a **Show password** button for
+  devices without a camera, and a **Show QR code** button that shows a code a
+  phone can scan to join. Both are cleared when hidden or when the panel
+  closes.
   Keyboard: arrows move, Enter activates.
 
 The hotspot uses the laptop's Wi-Fi card, so turning it on disconnects Wi-Fi
@@ -46,8 +48,8 @@ DHCP and DNS to the laptop, and routing out to the internet.
 
 The first time it is turned on, the widget creates a NetworkManager profile
 named `Hotspot`: network `<hostname>-hotspot`, WPA2, 2.4 GHz, and a random
-12-character password. See the password with
-`nmcli -s -g wifi-sec.psk connection show Hotspot`, and change them with:
+12-character password, shown by **Show password** in the panel. Change them
+with:
 
 ```bash
 nmcli connection modify Hotspot wifi.ssid "My Hotspot" wifi-sec.psk "new password"

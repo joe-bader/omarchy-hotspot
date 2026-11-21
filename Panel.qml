@@ -37,6 +37,11 @@ Panel {
   property var qrRows: []
   property string qrError: ""
 
+  // Password for devices without a camera; same lifetime rules as the QR.
+  property bool passwordShown: false
+  property string password: ""
+  property string passwordError: ""
+
   property bool cursorActive: false
   property int cursorIndex: 0
 
@@ -44,7 +49,11 @@ Panel {
   readonly property bool hotspotOn: desiredOn !== null ? desiredOn : Model.isOn(st)
   readonly property bool hasDevice: st !== "absent"
   readonly property bool canShare: st === "on" && String(info.ssid || "") !== ""
-  readonly property int cursorCount: canShare ? 2 : 1
+  readonly property bool hasProfile: hasDevice && String(info.profile || "") !== ""
+  // Cursor slots: 0 switch, then password (when a profile exists), then QR.
+  readonly property int passwordIndex: hasProfile ? 1 : -1
+  readonly property int qrIndex: canShare ? (hasProfile ? 2 : 1) : -1
+  readonly property int cursorCount: 1 + (hasProfile ? 1 : 0) + (canShare ? 1 : 0)
 
   readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
   readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
@@ -125,6 +134,24 @@ Panel {
     qrError = ""
   }
 
+  function togglePassword() {
+    if (passwordShown) { hidePassword(); return }
+    if (!hasProfile || passwordProc.running) return
+    passwordShown = true
+    password = ""
+    passwordError = ""
+    passwordProc.command = ["nmcli", "--show-secrets", "--escape", "no", "--get-values",
+      "802-11-wireless-security.psk", "connection", "show", "id", String(info.profile)]
+    passwordProc.running = true
+  }
+
+  function hidePassword() {
+    if (passwordProc.running) passwordProc.running = false
+    passwordShown = false
+    password = ""
+    passwordError = ""
+  }
+
   function applyQr(raw) {
     if (!qrShown) return
     var parsed = Model.parseQr(raw)
@@ -140,7 +167,8 @@ Panel {
   function activateCursor() {
     if (!cursorActive) return
     if (cursorIndex === 0) toggleHotspot()
-    else toggleQr()
+    else if (cursorIndex === passwordIndex) togglePassword()
+    else if (cursorIndex === qrIndex) toggleQr()
   }
 
   onOpenedChanged: {
@@ -150,8 +178,10 @@ Panel {
       refresh()
     } else {
       hideQr()
+      hidePassword()
     }
   }
+  onHasProfileChanged: if (!hasProfile) hidePassword()
   onCanShareChanged: if (!canShare) hideQr()
   onCursorCountChanged: cursorIndex = Math.min(cursorIndex, cursorCount - 1)
 
@@ -188,6 +218,22 @@ Panel {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.applyQr(text) }
     onExited: function(exitCode) {
       if (root.qrShown && exitCode !== 0 && root.qrRows.length === 0) root.qrError = strings.t("qrFailed")
+    }
+  }
+
+  Process {
+    id: passwordProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (!root.passwordShown) return
+        var pw = String(text || "").replace(/\r?\n$/, "")
+        if (pw === "" || pw.length > 64) root.passwordError = strings.t("passwordFailed")
+        else root.password = pw
+      }
+    }
+    onExited: function(exitCode) {
+      if (root.passwordShown && exitCode !== 0 && root.password === "") root.passwordError = strings.t("passwordFailed")
     }
   }
 
@@ -310,6 +356,32 @@ Panel {
           InfoPair { label: strings.t("dataUsed"); value: root.st === "on" ? root.dataText : "" }
         }
 
+        Text {
+          textFormat: Text.PlainText
+          visible: root.passwordShown && text !== ""
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          text: root.passwordError !== "" ? root.passwordError : root.password
+          color: root.passwordError !== "" ? root.urgent : root.foreground
+          // Large in the bar's monospace font, so it can be read off and typed in.
+          font.family: root.fontFamily
+          font.pixelSize: root.passwordError !== "" ? Style.font.bodySmall : Style.font.display
+          wrapMode: Text.WrapAnywhere
+        }
+
+        Button {
+          visible: root.hasProfile
+          width: parent.width
+          text: root.passwordShown ? strings.t("hidePassword") : strings.t("showPassword")
+          fontSize: Style.font.bodySmall
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          bordered: true
+          hasCursor: root.cursorActive && root.cursorIndex === root.passwordIndex
+          onClicked: root.togglePassword()
+          onHovered: function(h) { if (h) { root.cursorActive = true; root.cursorIndex = root.passwordIndex } }
+        }
+
         Rectangle {
           id: qrBox
           visible: root.qrShown && root.qrRows.length > 0
@@ -361,9 +433,9 @@ Panel {
           foreground: root.foreground
           fontFamily: root.fontFamily
           bordered: true
-          hasCursor: root.cursorActive && root.cursorIndex === 1
+          hasCursor: root.cursorActive && root.cursorIndex === root.qrIndex
           onClicked: root.toggleQr()
-          onHovered: function(h) { if (h) { root.cursorActive = true; root.cursorIndex = 1 } }
+          onHovered: function(h) { if (h) { root.cursorActive = true; root.cursorIndex = root.qrIndex } }
         }
       }
     }
