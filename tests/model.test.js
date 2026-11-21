@@ -1,7 +1,7 @@
 // Run: node tests/model.test.js   (from the plugin folder)
 const fs = require("fs"), path = require("path"), assert = require("assert")
 const src = fs.readFileSync(path.join(__dirname, "..", "Model.js"), "utf8").replace(".pragma library", "")
-const M = new Function(src + "; return { parse, status, isOn, icon, lit, hintKey, isProblem, clientCount, uplinkKey, bandLabel, humanBytes, ICON_ON, ICON_OFF, ICON_ALERT }")()
+const M = new Function(src + "; return { parse, status, isOn, icon, lit, hintKey, isProblem, clientCount, uplinkKey, bandLabel, humanBytes, parseQr, ICON_ON, ICON_OFF, ICON_ALERT }")()
 
 const base = { device: "wlp1s0", radio: "enabled", dnsmasq: "yes", firewall: "open", profile: "Hotspot" }
 const info = o => Object.assign({}, base, o)
@@ -50,5 +50,15 @@ assert.strictEqual(M.bandLabel("bg"), "2.4 GHz")
 assert.strictEqual(M.bandLabel(""), "")
 assert.strictEqual(M.humanBytes("1536"), "1.5 KB")
 assert.strictEqual(M.humanBytes("nope"), "")
+
+// QR matrix
+const q = M.parseQr("meta\twlp1s0\tWPA\tmy\thot spot\n101\n010\n101\n")
+assert.strictEqual(q.ssid, "my\thot spot")
+assert.strictEqual(q.size, 3)
+assert.deepStrictEqual(q.rows, ["101", "010", "101"])
+assert.strictEqual(M.parseQr("101\n010\n").size, 0)          // not square
+assert.strictEqual(M.parseQr("1a1\n010\n101\n").size, 0)    // bad cell
+assert.strictEqual(M.parseQr("meta\tw\tWPA\tx\n").size, 0)  // no matrix
+assert.strictEqual(M.parseQr("").size, 0)
 
 console.log("ok")

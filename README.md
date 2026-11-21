@@ -10,7 +10,7 @@ computer.
 - **Panel**: on/off switch, connected devices, a hint for anything in the way
   (missing dnsmasq, firewall, no internet to share), network name, band, what
   it is sharing, data used this session, and a **Show QR code** button that
-  opens Omarchy's Wi-Fi share card (scan to join, or reveal the password).
+  shows a code a phone can scan to join.
   Keyboard: arrows move, Enter activates.
 
 The hotspot uses the laptop's Wi-Fi card, so turning it on disconnects Wi-Fi
@@ -46,7 +46,8 @@ DHCP and DNS to the laptop, and routing out to the internet.
 
 The first time it is turned on, the widget creates a NetworkManager profile
 named `Hotspot`: network `<hostname>-hotspot`, WPA2, 2.4 GHz, and a random
-12-character password. Change them with:
+12-character password. See the password with
+`nmcli -s -g wifi-sec.psk connection show Hotspot`, and change them with:
 
 ```bash
 nmcli connection modify Hotspot wifi.ssid "My Hotspot" wifi-sec.psk "new password"
@@ -69,7 +70,9 @@ omarchy bar set joe.hotspot refreshIntervalSec 30
 - `hotspot-up` — creates the profile on first use and brings it up.
 - `setup-firewall` — the ufw rules above.
 - `Model.js` — pure status logic; test with `node tests/model.test.js`.
-- `Panel.qml` — the bar icon and panel.
+- `Panel.qml` — the bar icon and panel. The QR code is drawn from
+  `omarchy-network-qr` output; Omarchy only lets a plugin summon its own
+  panels, so the built-in Wi-Fi share card isn't available to it.
 - `i18n/en.json` — strings; add `<lang>.json` files for translations.
 
 Tested with an Intel Wi-Fi card (iwlwifi).

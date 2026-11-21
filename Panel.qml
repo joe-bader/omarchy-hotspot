@@ -7,7 +7,9 @@ import qs.Ui
 import "Model.js" as Model
 
 // Hotspot bar widget: access-point icon in the bar, and a panel with the
-// hotspot switch, connected devices, what is being shared, and a QR code.
+// hotspot switch, connected devices, what is being shared, and a QR code to
+// join it. The QR code is drawn here from `omarchy-network-qr`: plugins can
+// only summon their own panels, so Omarchy's Wi-Fi share card is out of reach.
 //
 // State comes from the bundled `hotspot-status` helper (read-only nmcli + iw).
 // Turning on goes through `hotspot-up`, which creates the NetworkManager
@@ -28,6 +30,12 @@ Panel {
   // Optimistic on/off while a change is in flight; null otherwise.
   property var desiredOn: null
   property string lastError: ""
+
+  // QR code to join the hotspot; it holds the password, so it is only kept
+  // while shown.
+  property bool qrShown: false
+  property var qrRows: []
+  property string qrError: ""
 
   property bool cursorActive: false
   property int cursorIndex: 0
@@ -100,17 +108,39 @@ Panel {
     else run(["nmcli", "connection", "down", "id", String(info.profile)])
   }
 
-  function showQr() {
-    if (!canShare || !bar || !bar.shell) return
-    var payload = { iface: String(info.device), ssid: String(info.ssid) }
-    close()
-    bar.shell.summon("omarchy.wifiqr", JSON.stringify(payload))
+  function toggleQr() {
+    if (qrShown) { hideQr(); return }
+    if (!canShare || qrProc.running) return
+    qrShown = true
+    qrRows = []
+    qrError = ""
+    qrProc.command = ["omarchy-network-qr", "--meta", String(info.device)]
+    qrProc.running = true
+  }
+
+  function hideQr() {
+    if (qrProc.running) qrProc.running = false
+    qrShown = false
+    qrRows = []
+    qrError = ""
+  }
+
+  function applyQr(raw) {
+    if (!qrShown) return
+    var parsed = Model.parseQr(raw)
+    // The device could have fallen back to ordinary Wi-Fi in the meantime;
+    // never show a code for a different network.
+    if (parsed.size === 0 || parsed.ssid !== String(info.ssid || "")) {
+      qrError = strings.t("qrFailed")
+      return
+    }
+    qrRows = parsed.rows
   }
 
   function activateCursor() {
     if (!cursorActive) return
     if (cursorIndex === 0) toggleHotspot()
-    else showQr()
+    else toggleQr()
   }
 
   onOpenedChanged: {
@@ -118,8 +148,11 @@ Panel {
       cursorActive = false
       cursorIndex = 0
       refresh()
+    } else {
+      hideQr()
     }
   }
+  onCanShareChanged: if (!canShare) hideQr()
   onCursorCountChanged: cursorIndex = Math.min(cursorIndex, cursorCount - 1)
 
   implicitWidth: button.implicitWidth
@@ -147,6 +180,14 @@ Panel {
       else root.desiredOn = null
       root.refresh()
       settleTimer.restart()
+    }
+  }
+
+  Process {
+    id: qrProc
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.applyQr(text) }
+    onExited: function(exitCode) {
+      if (root.qrShown && exitCode !== 0 && root.qrRows.length === 0) root.qrError = strings.t("qrFailed")
     }
   }
 
@@ -269,16 +310,59 @@ Panel {
           InfoPair { label: strings.t("dataUsed"); value: root.st === "on" ? root.dataText : "" }
         }
 
+        Rectangle {
+          id: qrBox
+          visible: root.qrShown && root.qrRows.length > 0
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: Style.space(200)
+          height: width
+          // Scanners want dark modules on a light ground whatever the theme.
+          color: "white"
+          radius: Style.space(6)
+
+          Canvas {
+            id: qrCanvas
+            anchors.fill: parent
+            anchors.margins: Style.space(4)
+            property var rows: root.qrRows
+            onRowsChanged: requestPaint()
+            onPaint: {
+              var ctx = getContext("2d")
+              ctx.reset()
+              var n = rows.length
+              if (n === 0) return
+              var cell = Math.floor(Math.min(width, height) / n)
+              var off = Math.floor((Math.min(width, height) - cell * n) / 2)
+              ctx.fillStyle = "black"
+              for (var y = 0; y < n; y++)
+                for (var x = 0; x < n; x++)
+                  if (rows[y].charAt(x) === "1") ctx.fillRect(off + x * cell, off + y * cell, cell, cell)
+            }
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          visible: root.qrShown && text !== ""
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          text: root.qrError !== "" ? root.qrError : (root.qrRows.length === 0 ? strings.t("qrLoading") : strings.t("qrHint"))
+          color: root.qrError !== "" ? root.urgent : root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.Wrap
+        }
+
         Button {
           visible: root.canShare
           width: parent.width
-          text: strings.t("showQr")
+          text: root.qrShown ? strings.t("hideQr") : strings.t("showQr")
           fontSize: Style.font.bodySmall
           foreground: root.foreground
           fontFamily: root.fontFamily
           bordered: true
           hasCursor: root.cursorActive && root.cursorIndex === 1
-          onClicked: root.showQr()
+          onClicked: root.toggleQr()
           onHovered: function(h) { if (h) { root.cursorActive = true; root.cursorIndex = 1 } }
         }
       }

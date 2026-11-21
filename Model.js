@@ -100,3 +100,21 @@ function humanBytes(raw, formatNumber) {
   var decimals = i === 0 || n >= 100 ? 0 : 1
   return (formatNumber ? formatNumber(n, decimals) : n.toFixed(decimals)) + " " + units[i]
 }
+
+// Output of `omarchy-network-qr --meta <iface>`: a "meta<TAB>iface<TAB>
+// security<TAB>ssid" line, then a square matrix of 0/1 rows (quiet zone
+// included). Returns { ssid, rows, size }; size 0 when the matrix is invalid.
+var MAX_QR = 185  // version 40 (177) plus a 4-module quiet zone each side
+
+function parseQr(raw) {
+  var lines = String(raw || "").trim().split(/\r?\n/).filter(function(l) { return l !== "" })
+  var ssid = ""
+  if (lines.length > 0 && lines[0].indexOf("meta\t") === 0)
+    ssid = lines.shift().split("\t").slice(3).join("\t")
+  var empty = { ssid: ssid, rows: [], size: 0 }
+  var size = lines.length
+  if (size === 0 || size > MAX_QR) return empty
+  for (var i = 0; i < size; i++)
+    if (lines[i].length !== size || !/^[01]+$/.test(lines[i])) return empty
+  return { ssid: ssid, rows: lines, size: size }
+}
