@@ -57,6 +57,16 @@ nmcli connection modify Hotspot wifi.ssid "My Hotspot" wifi-sec.psk "new passwor
 
 Use 5 GHz with `wifi.band a`, if your Wi-Fi card allows an access point there.
 
+The profile is marked metered, so NetworkManager tells Android devices that
+join to hold back background data (DHCP option 43, `ANDROID_METERED`). iPhones,
+iPads, Macs, and Windows don't read that hint: turn on Low Data Mode or
+Metered connection for the hotspot on those devices yourself. To stop
+announcing it:
+
+```bash
+nmcli connection modify Hotspot connection.metered unknown
+```
+
 ## Settings
 
 `refreshIntervalSec` (default 15; the panel polls every 3s while open):

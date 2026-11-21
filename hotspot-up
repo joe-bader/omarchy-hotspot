@@ -1,7 +1,7 @@
 #!/bin/bash
 # Turns the Wi-Fi hotspot on. On first use, creates a NetworkManager profile
-# named "Hotspot" (WPA2, 2.4 GHz, shared IPv4 on 10.42.0.1/24) with a random
-# password. Usage: hotspot-up [device]
+# named "Hotspot" (WPA2, 2.4 GHz, shared IPv4 on 10.42.0.1/24, metered) with
+# a random password. Usage: hotspot-up [device]
 
 set -euo pipefail
 export LC_ALL=C
@@ -27,7 +27,9 @@ if [[ -z $uuid ]]; then
   password=$(head -c 1024 /dev/urandom | tr -dc 'abcdefghjkmnpqrstuvwxyz23456789')
   password=${password:0:12}
   (( ${#password} == 12 )) || { echo "Could not generate a password" >&2; exit 1; }
-  nmcli connection add type wifi ifname "$device" con-name Hotspot autoconnect no \
+  # metered: NetworkManager then tells Android clients (DHCP option 43,
+  # ANDROID_METERED) to hold back background data on a cellular uplink.
+  nmcli connection add type wifi ifname "$device" con-name Hotspot autoconnect no connection.metered yes \
     ssid "${ssid:0:32}" 802-11-wireless.mode ap 802-11-wireless.band bg \
     wifi-sec.key-mgmt wpa-psk wifi-sec.proto rsn wifi-sec.pairwise ccmp wifi-sec.group ccmp \
     wifi-sec.pmf disable wifi-sec.psk "$password" \
